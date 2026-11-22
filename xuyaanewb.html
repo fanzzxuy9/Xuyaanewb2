@@ -913,7 +913,7 @@
             previewBox.classList.remove('hidden');
             if (file.type.startsWith('image') || mediaType === 'image') {
                 try {
-                    // Kompresi super cepat & ringan agar upload instan
+                    // Kompresi super cepat & ringan (maksimal 600px, kualitas 0.55 agar instan)
                     uploadedMediaBase64 = await compressImage(file, 600, 600, 0.55);
                     previewImg.src = uploadedMediaBase64;
                     previewImg.classList.remove('hidden');
@@ -983,6 +983,7 @@
             if (!currentUser) return;
 
             const btnSubmit = document.getElementById('btn-submit-post');
+            const btnText = document.getElementById('btn-post-text');
             const caption = document.getElementById('post-caption').value.trim();
             const mediaType = document.getElementById('post-media-type').value;
             const mediaUrlInput = document.getElementById('post-media-url').value.trim();
@@ -994,6 +995,7 @@
                 return;
             }
 
+            // Langsung tutup modal dan tampilkan postingan secara instan (Zero Delay)
             const postId = 'post_' + Date.now();
             const newPost = {
                 id: postId,
@@ -1011,15 +1013,12 @@
             };
 
             posts.unshift(newPost);
-            
-            // Simpan postingan ke LocalStorage agar langsung tampil
-            localStorage.setItem('xuyaanew_all_posts', JSON.stringify(posts));
-
             renderPosts();
             renderProfileGrid();
             closeCreatePostModal();
             showToast('Postingan berhasil dibagikan secara instan!');
 
+            // Sinkronisasi cloud berjalan di background tanpa mengunci UI
             try {
                 const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', postId);
                 setDoc(postRef, newPost).catch(err => console.warn("Background sync warning:", err));
@@ -1028,185 +1027,36 @@
             }
         };
 
-        function renderPosts() {
-            const container = document.getElementById('posts-container');
-            if (!container) return;
+        window.switchTab = function(tabName) {
+            document.getElementById('tab-feed').classList.add('hidden');
+            document.getElementById('tab-search').classList.add('hidden');
+            document.getElementById('tab-profile').classList.add('hidden');
+            document.getElementById('tab-user-detail').classList.add('hidden');
 
-            // Ambil juga dari local storage jika ada
-            const localPosts = JSON.parse(localStorage.getItem('xuyaanew_all_posts') || '[]');
-            // Gabungkan dan hilangkan duplikat berdasarkan id
-            const combinedMap = new Map();
-            [...posts, ...localPosts].forEach(p => combinedMap.set(p.id, p));
-            posts = Array.from(combinedMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            const selectedTab = document.getElementById(`tab-${tabName}`);
+            if (selectedTab) selectedTab.classList.remove('hidden');
 
-            if (posts.length === 0) {
-                container.innerHTML = `
-                    <div class="bg-slate-950 p-8 rounded-2xl border border-slate-800 text-center space-y-3">
-                        <i class="fa-regular fa-image text-4xl text-blue-500/50"></i>
-                        <p class="text-sm text-slate-400">Belum ada postingan. Jadilah yang pertama membagikan momen!</p>
-                    </div>
-                `;
-                return;
+            if (tabName === 'profile') {
+                updateProfileUI();
+                renderProfileGrid();
             }
-
-            container.innerHTML = posts.map(post => {
-                const isLiked = currentUser && post.likedBy && post.likedBy.includes(currentUser.username);
-                const authorObj = allUsers.find(u => u.username === post.authorUsername) || {};
-                const isVerifiedAuthor = authorObj.isVerified || post.authorUsername === currentUser?.username && currentUser?.isVerified;
-                const authorBadge = authorObj.badge || (post.authorUsername === currentUser?.username ? currentUser?.badge : '');
-
-                return `
-                    <div class="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl shadow-blue-950/20 space-y-3">
-                        <!-- Post Header -->
-                        <div class="flex items-center justify-between p-4 pb-0">
-                            <div class="flex items-center space-x-3 cursor-pointer" onclick="viewUserProfile('${post.authorUsername}')">
-                                <img src="${post.authorAvatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + post.authorUsername}" class="w-10 h-10 rounded-full object-cover border border-blue-500/30" alt="Avatar">
-                                <div>
-                                    <div class="flex items-center space-x-1.5">
-                                        <span class="font-bold text-sm text-white hover:underline">${post.authorName}</span>
-                                        ${isVerifiedAuthor ? '<i class="fa-solid fa-circle-check text-blue-500 text-xs"></i>' : ''}
-                                    </div>
-                                    <div class="flex items-center space-x-1.5">
-                                        <span class="text-xs text-cyan-400">@${post.authorUsername}</span>
-                                        ${authorBadge ? `<span class="px-1.5 py-0.5 text-[9px] font-extrabold uppercase bg-blue-600/20 text-blue-400 border border-blue-500/40 rounded">${authorBadge}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                            <span class="text-xs text-slate-500">${post.timestamp || 'Baru saja'}</span>
-                        </div>
-
-                        <!-- Post Media Content -->
-                        <div class="w-full bg-black max-h-[500px] overflow-hidden flex items-center justify-center relative group">
-                            ${post.mediaType === 'video' ? `
-                                <video controls class="w-full max-h-[500px] object-contain"><source src="${post.mediaUrl}"></video>
-                            ` : `
-                                <img src="${post.mediaUrl}" class="w-full max-h-[500px] object-cover" alt="Post Image">
-                            `}
-                        </div>
-
-                        <!-- Post Actions (Like, Comment) -->
-                        <div class="px-4 space-y-2">
-                            <div class="flex items-center space-x-4 pt-1">
-                                <button onclick="toggleLike('${post.id}')" class="flex items-center space-x-1.5 text-lg transition transform active:scale-125 ${isLiked ? 'text-red-500' : 'text-slate-300 hover:text-white'}">
-                                    <i class="${isLiked ? 'fa-solid' : 'fa-regular'} fa-heart"></i>
-                                    <span class="text-xs font-bold">${post.likes || 0}</span>
-                                </button>
-                                <button class="flex items-center space-x-1.5 text-lg text-slate-300 hover:text-white">
-                                    <i class="fa-regular fa-comment"></i>
-                                    <span class="text-xs font-bold">${post.comments ? post.comments.length : 0}</span>
-                                </button>
-                            </div>
-                            
-                            <!-- Caption -->
-                            <div class="text-sm pb-1">
-                                <span class="font-bold text-white mr-2">${post.authorUsername}</span>
-                                <span class="text-slate-200">${post.caption}</span>
-                            </div>
-                        </div>
-
-                        <!-- Comments Section -->
-                        <div class="px-4 pb-4 pt-2 border-t border-slate-900 space-y-3">
-                            <div class="space-y-2 max-h-32 overflow-y-auto no-scrollbar">
-                                ${(post.comments || []).map(c => `
-                                    <div class="text-xs bg-slate-900/60 p-2 rounded-xl border border-slate-800/50 flex justify-between items-start">
-                                        <div>
-                                            <span class="font-bold text-cyan-400 mr-1.5">@${c.username}</span>
-                                            <span class="text-slate-200">${c.text}</span>
-                                        </div>
-                                        <span class="text-[10px] text-slate-500">${c.time || ''}</span>
-                                    </div>
-                                `).join('')}
-                            </div>
-
-                            <form onsubmit="handleAddComment(event, '${post.id}')" class="flex gap-2">
-                                <input type="text" id="comment-input-${post.id}" placeholder="Tulis komentar..." class="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500" required>
-                                <button type="submit" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow transition">Kirim</button>
-                            </form>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        window.renderProfileGrid = function() {
-            if (!currentUser) return;
-            const grid = document.getElementById('profile-posts-grid');
-            if (!grid) return;
-
-            const myPosts = posts.filter(p => p.authorUsername === currentUser.username);
-            document.getElementById('profile-posts-count').textContent = myPosts.length;
-
-            if (myPosts.length === 0) {
-                grid.innerHTML = `<div class="col-span-3 py-12 text-center text-slate-500"><i class="fa-solid fa-camera text-4xl mb-2 text-blue-500/50"></i><p class="text-sm">Belum ada postingan.</p></div>`;
-            } else {
-                grid.innerHTML = myPosts.length > 0 ? myPosts.map(p => `
-                    <div class="relative group aspect-square overflow-hidden bg-black cursor-pointer border border-slate-900">
-                        ${p.mediaType === 'video' ? `
-                            <div class="relative w-full h-full flex items-center justify-center bg-slate-950">
-                                <i class="fa-solid fa-play text-2xl text-blue-400 z-10"></i>
-                                <video class="absolute inset-0 w-full h-full object-cover opacity-60"><source src="${p.mediaUrl}"></video>
-                            </div>
-                        ` : `
-                            <img src="${p.mediaUrl}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="Post">
-                        `}
-                    </div>
-                `).join('') : '';
-            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
-        window.toggleLike = async function(postId) {
-            if (!currentUser) return;
-            const post = posts.find(p => p.id === postId);
-            if (!post) return;
+        window.showToast = function(message) {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toast-message');
+            if (!toast || !toastMessage) return;
 
-            if (!post.likedBy) post.likedBy = [];
-            const index = post.likedBy.indexOf(currentUser.username);
+            toastMessage.textContent = message;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
+            toast.classList.add('opacity-100', 'translate-y-0');
 
-            if (index > -1) {
-                post.likedBy.splice(index, 1);
-                post.likes = Math.max(0, (post.likes || 1) - 1);
-            } else {
-                post.likedBy.push(currentUser.username);
-                post.likes = (post.likes || 0) + 1;
-            }
-
-            localStorage.setItem('xuyaanew_all_posts', JSON.stringify(posts));
-            renderPosts();
-
-            try {
-                const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', postId);
-                await updateDoc(postRef, { likes: post.likes, likedBy: post.likedBy });
-            } catch (err) {
-                console.warn("Like sync error:", err);
-            }
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
+            }, 3000);
         };
-
-        window.handleAddComment = async function(e, postId) {
-            e.preventDefault();
-            if (!currentUser) return;
-            const input = document.getElementById(`comment-input-${postId}`);
-            const text = input.value.trim();
-            if (!text) return;
-
-            const post = posts.find(p => p.id === postId);
-            if (!post) return;
-
-            if (!post.comments) post.comments = [];
-            post.comments.push({
-                username: currentUser.username,
-                text: text,
-                time: 'Baru saja'
-            });
-
-            localStorage.setItem('xuyaanew_all_posts', JSON.stringify(posts));
-            renderPosts();
-
-            try {
-                const postRef = doc(db, 'artifacts', appId, 'public', 'data', 'posts', postId);
-                await updateDoc(postRef, { comments: post.comments });
-            } catch (err) {
-                console.warn("Comment sync error:", err);
-            }
-        };
-
-        window.toggleFollow = async function(targetUsername) {
+    </script>
+</body>
+</html>
